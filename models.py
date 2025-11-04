@@ -1,50 +1,23 @@
-from pydantic import BaseModel
-from typing import List
+# models.py
+from pydantic import BaseModel, Field
+from typing import Literal
 
 class BaseEntity(BaseModel):
-    value: str
+    """Базовая модель для всех Сущностей."""
+    value: str = Field(..., description="Значение сущности")
 
-class Domain(BaseEntity):
-    pass
+    @property
+    def entity_type(self) -> str:
+        """Автоматически возвращает имя класса как 'тип'."""
+        return self.__class__.__name__
 
-class IPAddress(BaseEntity):
-    pass
-
-class Email(BaseEntity):
-    pass
-
-class Username(BaseEntity):
-    pass
-
-class Subdomain(BaseEntity):
-    pass
-
-class URL(BaseEntity):
-    pass
-
-class Port(BaseEntity):
-    pass
-
-class Service(BaseEntity):
-    pass
-
-class PhishingDomain(BaseEntity):
-    pass
-
-class PhoneNumber(BaseEntity):
-    pass
-
-class Technology(BaseEntity):
-    pass
-
-class ScreenshotFile(BaseEntity):
-    pass
-
-class EmailStatus(BaseEntity):
-    pass
-
-class Metadata(BaseEntity):
-    pass
-
-class GPSLocation(BaseEntity):
-    pass
+class Domain(BaseEntity): pass
+class Subdomain(BaseEntity): pass
+class IPAddress(BaseEntity): pass
+class Email(BaseEntity): pass
+class Username(BaseEntity): pass
+class URL(BaseEntity): pass
+class Port(BaseEntity): value: int
+class Service(BaseEntity): pass
+class Technology(BaseEntity): pass
+class GPSLocation(BaseEntity): pass

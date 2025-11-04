@@ -1,6 +1,5 @@
 sqlalchemy
 pydantic
+aiofiles
 rich
 questionary
-aiosqlite
-aiofiles
