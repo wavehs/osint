@@ -37,8 +37,8 @@ mkdir -p output
 # Путь к директории инструментов
 TOOLS_DIR=$(pwd)/tools
 
-echo "[+] 3. Установка Python-библиотек из requirements.txt..."
-python3 -m pip install -r requirements.txt
+echo "[+] 3. Установка фреймворка и зависимостей..."
+python3 -m pip install -e .
 
 echo "[+] 4. Клонирование и установка Sublist3r..."
 if [ ! -d "$TOOLS_DIR/sublist3r" ]; then
@@ -61,5 +61,6 @@ fi
 echo ""
 echo "[*] -----------------------------------------------"
 echo "[*] Установка завершена!"
-echo "[*] Запустите программу командой: python3 main.py"
+echo "[*] Активируйте ваше виртуальное окружение, если вы его используете (source venv/bin/activate)."
+echo "[*] Запустите программу командой: robust"
 echo "[*] -----------------------------------------------"

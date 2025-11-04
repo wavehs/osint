@@ -21,7 +21,7 @@ ROBUST is an intelligent, modular, and extensible OSINT (Open Source Intelligenc
 
 ROBUST is a Python-based framework but orchestrates many popular third-party OSINT tools. Installation is a two-step process: installing the framework's dependencies and installing the external tools.
 
-### Step 1: Install Python Dependencies
+### Step 1: Install the Framework
 
 It is highly recommended to use a Python virtual environment.
 
@@ -34,8 +34,8 @@ cd robust-framework
 python3 -m venv venv
 source venv/bin/activate
 
-# Install the required Python packages
-pip install -r requirements.txt
+# Install the framework and its dependencies
+pip install -e .
 ```
 
 ### Step 2: Install External OSINT Tools
@@ -84,10 +84,10 @@ The framework currently integrates with the following tools. They **must be inst
 
 ## 🚀 Usage
 
-Once all dependencies and external tools are installed, you can run the framework from the main project directory.
+Once the framework and all external tools are installed, you can run ROBUST from anywhere in your terminal.
 
 ```bash
-python main.py
+robust
 ```
 
 You will be greeted by the main menu:
