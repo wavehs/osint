@@ -1,59 +1,63 @@
-import json
-import xml.etree.ElementTree as ET
-from typing import List, Dict, Tuple
-
+# parsers.py
 import re
+from typing import List, Set, Tuple
+import xml.etree.ElementTree as ET # Для парсинга Nmap
 
-def parse_sublist3r(raw_text_output: str) -> List[str]:
-    """Parses the text output of Sublist3r to extract subdomains."""
-    # This regex is designed to find subdomains, which are typically alphanumeric and can contain hyphens.
-    # It avoids capturing the banner and other noisy output from the tool.
-    subdomain_pattern = re.compile(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-    found_subdomains = []
-    for line in raw_text_output.splitlines():
-        clean_line = line.strip()
-        if subdomain_pattern.match(clean_line):
-            found_subdomains.append(clean_line)
-    return found_subdomains
+def parse_sublist3r(raw_output: str) -> Set[str]:
+    """Парсит стандартный вывод Sublist3r."""
+    # Sublist3r выводит много мусора, но домены - с BRUTEFORCE
+    # или просто на новой строке.
+    # Это простое регулярное выражение ищет FQDN.
 
-def parse_theharvester_json(json_output: str) -> Dict[str, List[str]]:
-    """
-    Parses the JSON output of TheHarvester.
-    Returns a dictionary with 'emails', 'hosts', and 'ips'.
-    """
-    try:
-        data = json.loads(json_output)
-        return {
-            "emails": data.get("emails", []),
-            "hosts": data.get("hosts", []),
-            "ips": data.get("ips", []),
-        }
-    except json.JSONDecodeError:
-        return {"emails": [], "hosts": [], "ips": []}
+    # Регулярка для FQDN (Fully Qualified Domain Name)
+    fqdn_regex = r"([a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,})"
 
-def parse_nmap_xml(xml_output: str) -> Tuple[List[str], List[str]]:
-    """Parses the XML output of Nmap to extract ports and services."""
-    ports = []
-    services = []
+    matches = re.findall(fqdn_regex, raw_output)
+
+    # Очищаем от мусора, который может поймать регулярка
+    cleaned_subdomains = set()
+    for match in matches:
+        match_lower = match.lower()
+        if "sublist3r" in match_lower or "total" in match_lower or "scanning" in match_lower or "saving" in match_lower or "github.com" in match_lower:
+            continue
+        cleaned_subdomains.add(match.strip())
+
+    return cleaned_subdomains
+
+def parse_nmap_xml(xml_output: str) -> List[Tuple[int, str]]:
+    """Парсит XML-вывод Nmap (-oX)."""
+    results: List[Tuple[int, str]] = []
+
+    if not xml_output.strip():
+        return []
+
     try:
         root = ET.fromstring(xml_output)
-        for port in root.findall(".//port"):
-            ports.append(port.get("portid"))
-            service = port.find("service")
-            if service is not None:
-                services.append(service.get("name"))
-    except ET.ParseError:
-        pass
-    return ports, services
 
-def parse_sherlock(raw_text_output: str) -> List[str]:
-    """Parses the text output of Sherlock to extract URLs."""
-    urls = []
-    # Sherlock prefixes found profile URLs with "[+]"
-    for line in raw_text_output.splitlines():
-        if line.strip().startswith("[+]"):
-            # Extract the URL, which is the last part of the line
-            parts = line.split(" ")
-            if len(parts) > 0 and parts[-1].startswith("http"):
-                urls.append(parts[-1])
-    return urls
+        for port in root.findall(".//port"):
+            port_num = int(port.get("portid"))
+            service_elem = port.find("service")
+
+            if service_elem is not None:
+                service_name = service_elem.get("name", "unknown")
+            else:
+                service_name = "unknown"
+
+            state_elem = port.find("state")
+            if state_elem is not None and state_elem.get("state") == "open":
+                results.append((port_num, service_name))
+
+        return results
+
+    except ET.ParseError as e:
+        print(f"Ошибка парсинга Nmap XML: {e}")
+        return []
+
+def parse_sherlock(raw_output: str) -> Set[str]:
+    """Парсит стандартный вывод Sherlock."""
+    # Sherlock выводит URL'ы в формате:
+    # [*] Username found at: [https://www.example.com/username](https://www.example.com/username)
+
+    url_regex = r"Username found at: (https?://[^\s]+)"
+    matches = re.findall(url_regex, raw_output)
+    return set(matches)
