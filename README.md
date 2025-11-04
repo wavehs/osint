@@ -19,6 +19,8 @@ ROBUST is an intelligent, modular, and extensible OSINT (Open Source Intelligenc
 
 ## ⚙️ Installation
 
+> **Для пользователей Windows:** Пожалуйста, следуйте [руководству по установке для Windows](README_WINDOWS.md).
+
 ROBUST is a Python-based framework but orchestrates many popular third-party OSINT tools. Installation is a two-step process: installing the framework's dependencies and installing the external tools.
 
 ### Step 1: Install Python Dependencies
