@@ -1,92 +1,44 @@
+# modules/domain_transforms.py
 import asyncio
-from modules.base_transform import BaseTransform
-from models import Domain, Subdomain
-from parsers import parse_sublist3r
 from typing import List
+from modules.base_transform import BaseTransform
+from models import Domain, Subdomain, BaseEntity
+from parsers import parse_sublist3r
+from config import TOOLS_DIR, DEFAULT_PROCESS_TIMEOUT
 
 class Sublist3rTransform(BaseTransform):
-    @property
-    def name(self) -> str:
-        return "Sublist3r"
+    transform_name = "Sublist3r"
+    input_type = Domain # Принимает Domain
 
-    async def run(self, entity: Domain) -> str:
-        """
-        Runs Sublist3r on the given domain.
-        """
-        # Using create_subprocess_exec to prevent command injection
-        process = await asyncio.create_subprocess_exec(
-            "python", # Assuming 'python' is in the PATH and it's python3
-            "sublist3r.py", # Assuming sublist3r.py is in the PATH or current directory
-            "-d",
-            entity.value,
+    async def run(self) -> str:
+        # Путь к инструменту
+        sublist3r_path = TOOLS_DIR / "sublist3r" / "sublist3r.py"
+        if not sublist3r_path.exists():
+            raise FileNotFoundError(f"Sublist3r не найден в {sublist3r_path}. Запустите setup.sh")
+
+        cmd = f"python3 {sublist3r_path} -d {self.entity.value}"
+
+        # Асинхронный запуск процесса
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            raise Exception(f"Sublist3r failed: {stderr.decode()}")
-        return stdout.decode()
-
-    def parse(self, raw_output: str) -> List[Subdomain]:
-        """
-        Parses the raw output of Sublist3r and returns a list of subdomains.
-        """
-        subdomains = parse_sublist3r(raw_output)
-        return [Subdomain(value=subdomain) for subdomain in subdomains]
-
-import tempfile
-import aiofiles
-
-class TheHarvesterTransform(BaseTransform):
-    @property
-    def name(self) -> str:
-        return "TheHarvester"
-
-    async def run(self, entity: Domain) -> str:
-        """
-        Runs TheHarvester on the given domain.
-        """
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=".json") as tmp_file:
-            temp_filename = tmp_file.name
+            stderr=asyncio.subprocess.PIPE)
 
         try:
-            # Using create_subprocess_exec to prevent command injection
-            process = await asyncio.create_subprocess_exec(
-                "theharvester",
-                "-d",
-                entity.value,
-                "-b",
-                "all",
-                "-f",
-                temp_filename,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await process.communicate()
-            if process.returncode != 0:
-                raise Exception(f"TheHarvester failed: {stderr.decode()}")
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=DEFAULT_PROCESS_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise Exception(f"Sublist3r превысил таймаут ({DEFAULT_PROCESS_TIMEOUT}c)")
 
-            async with aiofiles.open(temp_filename, "r") as f:
-                return await f.read()
-        finally:
-            import os
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
+        if proc.returncode != 0:
+            # Sublist3r часто пишет ошибки в stderr, но все равно работает
+            # Будем считать ошибкой, только если stdout пустой
+            if not stdout:
+                raise Exception(f"Sublist3r завершился с ошибкой: {stderr.decode()}")
+
+        return stdout.decode()
 
     def parse(self, raw_output: str) -> List[BaseEntity]:
-        """
-        Parses the raw output of TheHarvester and returns a list of subdomains, emails, and IPs.
-        """
-        from models import Subdomain, Email, IPAddress
-
-        results: List[BaseEntity] = []
-        data = parse_theharvester_json(raw_output)
-
-        for subdomain in data.get("hosts", []):
-            results.append(Subdomain(value=subdomain.split(":")[0]))
-        for email in data.get("emails", []):
-            results.append(Email(value=email))
-        for ip in data.get("ips", []):
-            results.append(IPAddress(value=ip))
-
-        return results
+        """Парсит вывод и возвращает Pydantic-модели."""
+        subdomains = parse_sublist3r(raw_output)
+        return [Subdomain(value=s) for s in subdomains]
