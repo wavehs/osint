@@ -1,99 +1,56 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+# database.py
 import datetime
-from sqlalchemy.future import select
+import enum
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Enum as DBEnum
+from sqlalchemy.orm import sessionmaker, relationship, DeclarativeBase
+from config import BASE_DIR
 
-DATABASE_URL = "sqlite+aiosqlite:///investigations.db"
+# --- Конфигурация БД ---
+DATABASE_URL = f"sqlite:///{BASE_DIR / 'investigations.db'}"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-engine = create_async_engine(DATABASE_URL, echo=True)
-async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+class Base(DeclarativeBase):
+    pass
 
-Base = declarative_base()
+# --- Перечисление для статусов ---
+class EntityStatus(enum.Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    DONE = "DONE"
+    FAILED = "FAILED"
 
+# --- Модель 1: Расследование ---
 class Investigation(Base):
     __tablename__ = "investigations"
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
     start_time = Column(DateTime, default=datetime.datetime.utcnow)
+    entities = relationship("Entity", back_populates="investigation")
 
+# --- Модель 2: Сущность ---
 class Entity(Base):
     __tablename__ = "entities"
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     investigation_id = Column(Integer, ForeignKey("investigations.id"))
-    type = Column(String)
-    value = Column(String)
-    status = Column(String, default="QUEUED")  # QUEUED, PROCESSING, DONE, FAILED
-    source_transform_name = Column(String, nullable=True)
+    type = Column(String, index=True)  # "Domain", "IPAddress"
+    value = Column(String, index=True) # "google.com", "8.8.8.8"
+    status = Column(DBEnum(EntityStatus), default=EntityStatus.QUEUED)
+    source_transform_name = Column(String, nullable=True) # Откуда взялась
+    investigation = relationship("Investigation", back_populates="entities")
+    results = relationship("TransformResult", back_populates="entity")
 
+# --- Модель 3: Результат Трансформа ---
 class TransformResult(Base):
     __tablename__ = "transform_results"
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     entity_id = Column(Integer, ForeignKey("entities.id"))
-    transform_name = Column(String)
+    transform_name = Column(String, index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    success = Column(String, default="UNKNOWN") # "SUCCESS" or "FAILED"
     raw_output_file = Column(String, nullable=True)
-    success = Column(Boolean)
+    entity = relationship("Entity", back_populates="results")
 
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-async def create_investigation(name: str) -> int:
-    async with async_session() as session:
-        async with session.begin():
-            investigation = Investigation(name=name)
-            session.add(investigation)
-            await session.flush()
-            return investigation.id
-
-async def add_entity(investigation_id: int, entity_type: str, entity_value: str, status: str = "QUEUED", source: str = None) -> Entity:
-    async with async_session() as session:
-        async with session.begin():
-            entity = Entity(
-                investigation_id=investigation_id,
-                type=entity_type,
-                value=entity_value,
-                status=status,
-                source_transform_name=source
-            )
-            session.add(entity)
-            await session.flush()
-            return entity
-
-async def get_next_queued_entity():
-    async with async_session() as session:
-        result = await session.execute(
-            select(Entity).where(Entity.status == "QUEUED").limit(1)
-        )
-        return result.scalars().first()
-
-async def set_entity_status(entity_id: int, status: str):
-    async with async_session() as session:
-        async with session.begin():
-            result = await session.execute(select(Entity).where(Entity.id == entity_id))
-            entity = result.scalars().first()
-            if entity:
-                entity.status = status
-
-async def add_entity_if_not_exists(investigation_id: int, entity_type: str, entity_value: str, source: str):
-    async with async_session() as session:
-        async with session.begin():
-            result = await session.execute(
-                select(Entity).where(Entity.investigation_id == investigation_id, Entity.value == entity_value)
-            )
-            existing_entity = result.scalars().first()
-            if not existing_entity:
-                await add_entity(investigation_id, entity_type, entity_value, source=source)
-
-async def get_all_investigations():
-    async with async_session() as session:
-        result = await session.execute(select(Investigation))
-        return result.scalars().all()
-
-async def get_entities_for_investigation(investigation_id: int):
-    async with async_session() as session:
-        result = await session.execute(
-            select(Entity).where(Entity.investigation_id == investigation_id)
-        )
-        return result.scalars().all()
+# --- Функция для создания таблиц ---
+def create_db_and_tables():
+    Base.metadata.create_all(bind=engine)
