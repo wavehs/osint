@@ -13,9 +13,13 @@ class NmapTransform(BaseTransform):
         """
         Runs Nmap on the given IP address.
         """
-        # Using -oX for easy parsing
-        process = await asyncio.create_subprocess_shell(
-            f"nmap -sV -oX - {entity.value}",
+        # Using create_subprocess_exec to prevent command injection
+        process = await asyncio.create_subprocess_exec(
+            "nmap",
+            "-sV",
+            "-oX",
+            "-",
+            entity.value,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -45,8 +49,12 @@ class MasscanTransform(BaseTransform):
         """
         Runs Masscan on the given IP address.
         """
-        process = await asyncio.create_subprocess_shell(
-            f"masscan {entity.value} -p0-65535 --rate=1000",
+        # Using create_subprocess_exec to prevent command injection
+        process = await asyncio.create_subprocess_exec(
+            "masscan",
+            entity.value,
+            "-p0-65535",
+            "--rate=1000",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

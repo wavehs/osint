@@ -60,9 +60,43 @@ async def start_new_investigation():
 
 
 async def view_results():
-    # This is a placeholder for a future feature
-    console.print("\n[bold yellow]Feature not yet implemented.[/bold yellow]")
-    # In a real implementation, you would query the database for investigations and their entities.
+    investigations = await database.get_all_investigations()
+    if not investigations:
+        console.print("\n[bold yellow]No investigations found.[/bold yellow]")
+        return
+
+    choices = [f"{inv.id}: {inv.name} ({inv.start_time.strftime('%Y-%m-%d %H:%M')})" for inv in investigations]
+
+    selected_investigation_str = await questionary.select(
+        "Select an investigation to view:",
+        choices=choices
+    ).ask_async()
+
+    if not selected_investigation_str:
+        return
+
+    investigation_id = int(selected_investigation_str.split(":")[0])
+
+    entities = await database.get_entities_for_investigation(investigation_id)
+
+    from rich.table import Table
+    table = Table(title=f"Results for Investigation {investigation_id}")
+    table.add_column("ID", style="dim")
+    table.add_column("Type", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_column("Source Transform", style="yellow")
+    table.add_column("Status", style="magenta")
+
+    for entity in entities:
+        table.add_row(
+            str(entity.id),
+            entity.type,
+            entity.value,
+            entity.source_transform_name or "Seed",
+            entity.status
+        )
+
+    console.print(table)
 
 
 async def main():

@@ -13,9 +13,12 @@ class Sublist3rTransform(BaseTransform):
         """
         Runs Sublist3r on the given domain.
         """
-        # Ensure sublist3r is installed and configured
-        process = await asyncio.create_subprocess_shell(
-            f"python sublist3r.py -d {entity.value}",
+        # Using create_subprocess_exec to prevent command injection
+        process = await asyncio.create_subprocess_exec(
+            "python", # Assuming 'python' is in the PATH and it's python3
+            "sublist3r.py", # Assuming sublist3r.py is in the PATH or current directory
+            "-d",
+            entity.value,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -47,9 +50,15 @@ class TheHarvesterTransform(BaseTransform):
             temp_filename = tmp_file.name
 
         try:
-            # Ensure theharvester is installed and configured
-            process = await asyncio.create_subprocess_shell(
-                f"theharvester -d {entity.value} -b all -f {temp_filename}",
+            # Using create_subprocess_exec to prevent command injection
+            process = await asyncio.create_subprocess_exec(
+                "theharvester",
+                "-d",
+                entity.value,
+                "-b",
+                "all",
+                "-f",
+                temp_filename,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -61,13 +70,23 @@ class TheHarvesterTransform(BaseTransform):
                 return await f.read()
         finally:
             import os
-            os.remove(temp_filename)
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
 
-    def parse(self, raw_output: str) -> List[Subdomain]:
+    def parse(self, raw_output: str) -> List[BaseEntity]:
         """
-        Parses the raw output of TheHarvester and returns a list of subdomains.
+        Parses the raw output of TheHarvester and returns a list of subdomains, emails, and IPs.
         """
-        # Note: a more robust implementation would parse emails, IPs, etc.
+        from models import Subdomain, Email, IPAddress
+
+        results: List[BaseEntity] = []
         data = parse_theharvester_json(raw_output)
-        subdomains = data.get("hosts", [])
-        return [Subdomain(value=subdomain.split(":")[0]) for subdomain in subdomains]
+
+        for subdomain in data.get("hosts", []):
+            results.append(Subdomain(value=subdomain.split(":")[0]))
+        for email in data.get("emails", []):
+            results.append(Email(value=email))
+        for ip in data.get("ips", []):
+            results.append(IPAddress(value=ip))
+
+        return results

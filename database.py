@@ -85,3 +85,15 @@ async def add_entity_if_not_exists(investigation_id: int, entity_type: str, enti
             existing_entity = result.scalars().first()
             if not existing_entity:
                 await add_entity(investigation_id, entity_type, entity_value, source=source)
+
+async def get_all_investigations():
+    async with async_session() as session:
+        result = await session.execute(select(Investigation))
+        return result.scalars().all()
+
+async def get_entities_for_investigation(investigation_id: int):
+    async with async_session() as session:
+        result = await session.execute(
+            select(Entity).where(Entity.investigation_id == investigation_id)
+        )
+        return result.scalars().all()

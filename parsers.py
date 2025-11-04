@@ -16,12 +16,20 @@ def parse_sublist3r(raw_text_output: str) -> List[str]:
             found_subdomains.append(clean_line)
     return found_subdomains
 
-def parse_theharvester_json(json_output: str) -> Dict:
-    """Parses the JSON output of TheHarvester."""
+def parse_theharvester_json(json_output: str) -> Dict[str, List[str]]:
+    """
+    Parses the JSON output of TheHarvester.
+    Returns a dictionary with 'emails', 'hosts', and 'ips'.
+    """
     try:
-        return json.loads(json_output)
+        data = json.loads(json_output)
+        return {
+            "emails": data.get("emails", []),
+            "hosts": data.get("hosts", []),
+            "ips": data.get("ips", []),
+        }
     except json.JSONDecodeError:
-        return {}
+        return {"emails": [], "hosts": [], "ips": []}
 
 def parse_nmap_xml(xml_output: str) -> Tuple[List[str], List[str]]:
     """Parses the XML output of Nmap to extract ports and services."""

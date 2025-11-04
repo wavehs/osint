@@ -13,8 +13,10 @@ class SherlockTransform(BaseTransform):
         """
         Runs Sherlock on the given username.
         """
-        process = await asyncio.create_subprocess_shell(
-            f"sherlock {entity.value}",
+        # Using create_subprocess_exec to prevent command injection
+        process = await asyncio.create_subprocess_exec(
+            "sherlock",
+            entity.value,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
