@@ -1,125 +1,119 @@
+# main.py
 import asyncio
 import questionary
 from rich.console import Console
 from rich.panel import Panel
-import database
+
+# Импорты из нашего проекта
+from database import create_db_and_tables, SessionLocal, Investigation, Entity, EntityStatus
+from models import (
+    Domain, IPAddress, Username, Subdomain, Port, Service,
+    Technology, GPSLocation, Email, URL, BaseEntity
+)
 from engine import InvestigationEngine
-import models
+
+# Импорты наших модулей
+from modules.domain_transforms import Sublist3rTransform
+from modules.ip_transforms import NmapTransform
+# (Здесь мы будем добавлять новые модули)
+
+# --- 1. Собираем ВСЕ наши модули ---
+ALL_TRANSFORMS = [
+    Sublist3rTransform,
+    NmapTransform,
+    # SherlockTransform, (добавим в след. задаче)
+]
+
+# --- 2. Определяем, какие "семена" (seeds) мы принимаем ---
+SEED_ENTITY_TYPES = {
+    "Domain": Domain,
+    "IPAddress": IPAddress,
+    "Username": Username,
+}
 
 console = Console()
 
-def print_banner():
-    banner = """
-    ██████╗ ███████╗██╗███╗   ██╗████████╗
-    ██╔══██╗██╔════╝██║████╗  ██║╚══██╔══╝
-    ██████╔╝███████╗██║██╔██╗ ██║   ██║
-    ██╔══██╗╚════██║██║██║╚██╗██║   ██║
-    ██║  ██║███████║██║██║ ╚████║   ██║
-    ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝
-
-    -- An Automated OSINT Investigation Framework --
-    """
-    console.print(Panel.fit(banner, style="bold blue"))
-    console.print(Panel.fit(
-        "[bold red]ETHICAL USE NOTICE:[/bold red]\n"
-        "This tool is intended for professional and authorized security analysis only. "
-        "Unauthorized use against systems or individuals is illegal and unethical. "
-        "By using this tool, you agree to do so responsibly and in accordance with all applicable laws.",
-        title="Disclaimer",
-        border_style="red"
-    ))
-
+def show_banner():
+    """Показывает этический баннер."""
+    banner = Panel(
+        "[bold red]ВНИМАНИЕ![/bold red] Этот инструмент предназначен для образовательных и [bold green]оборонительных (Blue Team)[/bold green] целей, например, для аудита [bold]собственной[/bold] инфраструктуры. Несанкционированное сканирование чужих систем незаконно. Автор не несет ответственности за неправомерное использование.",
+        title="ЭТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ",
+        border_style="red",
+        width=80
+    )
+    console.print(banner)
 
 async def start_new_investigation():
-    name = await questionary.text("Investigation Name (e.g., 'my-company-audit'):").ask_async()
-    if not name: return
+    """Запускает мастер создания нового расследования."""
 
-    entity_type = await questionary.select(
-        "Seed Entity Type:",
-        choices=["Domain", "IPAddress", "Username"]
-    ).ask_async()
-    if not entity_type: return
+    # --- Шаг 1: Запрос у пользователя ---
+    investigation_name = await questionary.text("Название расследования (напр., 'my-company-audit'):").ask_async()
+    if not investigation_name:
+        investigation_name = "Новое расследование"
 
-    value = await questionary.text(f"Enter {entity_type}:").ask_async()
-    if not value: return
-
-    await database.init_db()
-    investigation_id = await database.create_investigation(name)
-
-    # Convert string type to Pydantic model class
-    model_class = getattr(models, entity_type)
-    seed_entity_model = model_class(value=value)
-
-    await database.add_entity(investigation_id, entity_type, value, status="QUEUED")
-
-    engine = InvestigationEngine(investigation_id)
-
-    console.print(f"\n[bold green]Starting investigation '{name}'...[/bold green]")
-    await engine.start(seed_entity_model)
-    console.print(f"[bold blue]Investigation '{name}' complete![/bold blue]")
-
-
-async def view_results():
-    investigations = await database.get_all_investigations()
-    if not investigations:
-        console.print("\n[bold yellow]No investigations found.[/bold yellow]")
-        return
-
-    choices = [f"{inv.id}: {inv.name} ({inv.start_time.strftime('%Y-%m-%d %H:%M')})" for inv in investigations]
-
-    selected_investigation_str = await questionary.select(
-        "Select an investigation to view:",
-        choices=choices
+    seed_type_name = await questionary.select(
+        "Тип начальной 'сущности':",
+        choices=list(SEED_ENTITY_TYPES.keys())
     ).ask_async()
 
-    if not selected_investigation_str:
+    seed_value = await questionary.text(f"Введите {seed_type_name}:").ask_async()
+    if not seed_value:
+        console.print("[red]Значение не может быть пустым.[/red]")
         return
 
-    investigation_id = int(selected_investigation_str.split(":")[0])
+    # --- Шаг 2: Создание в БД ---
+    session = SessionLocal()
 
-    entities = await database.get_entities_for_investigation(investigation_id)
+    # 2.1. Создаем Расследование
+    new_investigation = Investigation(name=investigation_name)
+    session.add(new_investigation)
+    session.commit()
+    session.refresh(new_investigation)
 
-    from rich.table import Table
-    table = Table(title=f"Results for Investigation {investigation_id}")
-    table.add_column("ID", style="dim")
-    table.add_column("Type", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_column("Source Transform", style="yellow")
-    table.add_column("Status", style="magenta")
+    investigation_id = new_investigation.id
 
-    for entity in entities:
-        table.add_row(
-            str(entity.id),
-            entity.type,
-            entity.value,
-            entity.source_transform_name or "Seed",
-            entity.status
-        )
+    # 2.2. Создаем "семенную" Сущность
+    seed_entity = Entity(
+        investigation_id=investigation_id,
+        type=seed_type_name,
+        value=seed_value,
+        status=EntityStatus.QUEUED, # Ставим в очередь
+        source_transform_name="Seed"
+    )
+    session.add(seed_entity)
+    session.commit()
+    session.close()
 
-    console.print(table)
+    console.print(f"\n[bold green]Расследование '{investigation_name}' (ID: {investigation_id}) создано.[/bold green]")
+    console.print(f"Начальная сущность: ({seed_type_name}) {seed_value}")
 
+    # --- Шаг 3: Запуск Движка ---
+    engine = InvestigationEngine(investigation_id=investigation_id)
+    engine.register_transforms(ALL_TRANSFORMS)
 
-async def main():
-    while True:
-        print_banner()
-        choice = await questionary.select(
-            "Main Menu:",
-            choices=[
-                "Start New Investigation",
-                "View Results (by ID)",
-                "Exit"
-            ]
-        ).ask_async()
+    await engine.start()
 
-        if choice == "Start New Investigation":
-            await start_new_investigation()
-        elif choice == "View Results (by ID)":
-            await view_results()
-        elif choice == "Exit" or choice is None:
-            break
+async def main_menu():
+    """Главное меню программы."""
+    show_banner()
+
+    # (Здесь в будущем можно добавить "Посмотреть старые расследования")
+    action = await questionary.select(
+        "Выберите действие:",
+        choices=["Начать новое расследование", "Выход"]
+    ).ask_async()
+
+    if action == "Начать новое расследование":
+        await start_new_investigation()
+    else:
+        console.print("[bold]До свидания![/bold]")
 
 if __name__ == "__main__":
+    # 1. Убедимся, что БД и таблицы существуют
+    create_db_and_tables()
+
+    # 2. Запускаем асинхронное TUI
     try:
-        asyncio.run(main())
+        asyncio.run(main_menu())
     except KeyboardInterrupt:
-        console.print("\n[bold yellow]Exiting...[/bold yellow]")
+        console.print("\n[bold red]Выход по нажатию Ctrl+C...[/bold red]")
